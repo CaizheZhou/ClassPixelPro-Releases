@@ -1,0 +1,114 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '私有仓库要构建的 Tag（如 2.1.2.16）'
+        required: true
+        type: string
+
+concurrency:
+  group: build-${{ inputs.tag_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build_and_Pack
+    runs-on: windows-2022
+    env:
+      RELEASE_TAG: ${{ inputs.tag_name }}
+    steps:
+      - name: Checkout private repo
+        uses: actions/checkout@v4
+        with:
+          repository: CaizheZhou/ClassPixelPro
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          ref: ${{ format('refs/tags/{0}', inputs.tag_name) }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build and assemble dist package
+        shell: pwsh
+        run: pwsh -File ./pack.ps1 -Version $env:RELEASE_TAG -DistDir ci-dist
+
+      - name: Collect zip into workspace
+        shell: pwsh
+        run: |
+          Move-Item "../ClassPixelPro_$($env:RELEASE_TAG)_windows-x64.zip" ./ -Force
+          Get-ChildItem *.zip
+
+      - name: Generate release notes
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:RELEASE_TAG
+          $date = Get-Date -Format "yyyy-MM-dd"
+          $changelogPath = 'CHANGELOG.md'
+          $notes = ""
+          if (Test-Path $changelogPath) {
+            $content = Get-Content $changelogPath -Raw -Encoding UTF8
+            $pattern = "## \[$([regex]::Escape($tag))\][^\r\n]*\r?\n([\s\S]*?)(?=\r?\n## \[|\Z)"
+            $m = [regex]::Match($content, $pattern)
+            if ($m.Success) { $notes = $m.Groups[1].Value.Trim() }
+          }
+          if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Release $tag" }
+          $sb = [System.Text.StringBuilder]::new()
+          [void]$sb.AppendLine("# 📦 ClassPixelPro v$tag")
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("> **发布日期：** $date")
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine($notes)
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("## 校验和与下载链接")
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("**下载时请注意核对文件 SHA512 是否正确。**")
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("| 文件名 | SHA512 |")
+          [void]$sb.AppendLine("|--------|--------|")
+          Get-ChildItem ./*.zip | ForEach-Object {
+            $sha = (Get-FileHash $_.FullName -Algorithm SHA512).Hash.ToUpper()
+            [void]$sb.AppendLine("| $($_.Name) | $sha |")
+          }
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("---")
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("> 📦 **版本号**：$tag")
+          Get-ChildItem ./*.zip | ForEach-Object {
+            $sizeMB = [math]::Round($_.Length / 1MB, 1)
+            [void]$sb.AppendLine("> 📁 **文件**：``$($_.Name)``（$sizeMB MB）")
+          }
+          [void]$sb.AppendLine("> 📅 **日期**：$date")
+          $sb.ToString() | Set-Content -Path release_notes.md -Encoding UTF8
+          Write-Host "===== Generated release notes ====="
+          Get-Content release_notes.md -Raw
+          Write-Host "=================================="
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:RELEASE_TAG
+          $zips = (Get-ChildItem ./*.zip).FullName
+          if (gh release view $tag --repo $env:GH_REPO 2>$null) {
+            Write-Host "Release $tag already exists, deleting and recreating"
+            gh release delete $tag --repo $env:GH_REPO --yes
+          }
+          gh release create $tag $zips --repo $env:GH_REPO `
+            --title "ClassPixelPro $tag" `
+            --notes-file release_notes.md `
+            --latest

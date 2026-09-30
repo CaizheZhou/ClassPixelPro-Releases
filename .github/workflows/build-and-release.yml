@@ -36,7 +36,7 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Build and assemble dist package
+      - name: Build and assemble dist 🗦
         shell: pwsh
         run: pwsh -File ./pack.ps1 -Version $env:RELEASE_TAG -DistDir ci-dist
 
@@ -64,9 +64,11 @@ jobs:
           }
           if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "Release $tag" }
           $sb = [System.Text.StringBuilder]::new()
-          [void]$sb.AppendLine("# 📦 ClassPixelPro v$tag")
+          [void]$sb.AppendLine("# 🗋 ClassPixelPro v$tag")
           [void]$sb.AppendLine()
           [void]$sb.AppendLine("> **发布日期：** $date")
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("> **⚠️注意：该版本更新重启后可能会要求更新 .NET 环境，按照提示下载更新即可继续正常使用~⚠️⚠️⚠️**")
           [void]$sb.AppendLine()
           [void]$sb.AppendLine($notes)
           [void]$sb.AppendLine()
@@ -83,12 +85,12 @@ jobs:
           [void]$sb.AppendLine()
           [void]$sb.AppendLine("---")
           [void]$sb.AppendLine()
-          [void]$sb.AppendLine("> 📦 **版本号**：$tag")
+          [void]$sb.AppendLine("> 🗌 **版本号**：$tag")
           Get-ChildItem ./*.zip | ForEach-Object {
             $sizeMB = [math]::Round($_.Length / 1MB, 1)
-            [void]$sb.AppendLine("> 📁 **文件**：``$($_.Name)``（$sizeMB MB）")
+            [void]$sb.AppendLine("> 🗦 **文件**：``$($_.Name)``（$sizeMB MB）")
           }
-          [void]$sb.AppendLine("> 📅 **日期**：$date")
+          [void]$sb.AppendLine("> 🗅 **日期**：$date")
           $sb.ToString() | Set-Content -Path release_notes.md -Encoding UTF8
           Write-Host "===== Generated release notes ====="
           Get-Content release_notes.md -Raw
@@ -112,3 +114,45 @@ jobs:
             --title "ClassPixelPro $tag" `
             --notes-file release_notes.md `
             --latest
+
+      - name: Publish to website backend
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          WEBSITE_API_URL: ${{ secrets.WEBSITE_API_URL }}
+          WEBSITE_ADMIN_USER: ${{ secrets.WEBSITE_ADMIN_USER }}
+          WEBSITE_ADMIN_PASS: ${{ secrets.WEBSITE_ADMIN_PASS }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:RELEASE_TAG
+          $apiUrl = $env:WEBSITE_API_URL
+          Write-Host "Logging in to website backend..."
+          $loginBody = @{ username = $env:WEBSITE_ADMIN_USER; password = $env:WEBSITE_ADMIN_PASS } | ConvertTo-Json
+          $loginResp = Invoke-RestMethod -Uri "$apiUrl/api/auth/login" -Method POST -Body $loginBody -ContentType "application/json; charset=utf-8"
+          $token = $loginResp.token
+          Write-Host "Login successful, token length: $($token.Length)"
+          $zip = Get-ChildItem ./*.zip | Select-Object -First 1
+          $archiveUrl = "https://github.com/$env:GH_REPO/releases/download/$tag/$($zip.Name)"
+          $archiveSize = $zip.Length
+          $changelog = Get-Content release_notes.md -Raw -Encoding UTF8
+          $parts = $tag.Split('.')
+          $friendlyVersion = $tag
+          $friendlyVersionShort = if ($parts.Length -ge 3) { "$($parts[0]).$($parts[1]).$($parts[2])" } else { $tag }
+          Write-Host "Creating distribution via API..."
+          Write-Host "  version: $tag"
+          Write-Host "  archiveUrl: $archiveUrl"
+          Write-Host "  archiveSize: $archiveSize"
+          Write-Host "  friendlyVersion: $friendlyVersion"
+          Write-Host "  friendlyVersionShort: $friendlyVersionShort"
+          $createBody = @{
+            version = $tag
+            changelog = $changelog
+            archiveUrl = $archiveUrl
+            archiveSize = $archiveSize
+            friendlyVersion = $friendlyVersion
+            friendlyVersionShort = $friendlyVersionShort
+          } | ConvertTo-Json -Depth 5
+          $headers = @{ Authorization = "Bearer $token" }
+          $createResp = Invoke-RestMethod -Uri "$apiUrl/api/admin/distributions/create-with-url" -Method POST -Body $createBody -ContentType "application/json; charset=utf-8" -Headers $headers
+          Write-Host "Distribution created successfully: $($createResp | ConvertTo-Json)"

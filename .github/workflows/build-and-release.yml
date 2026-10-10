@@ -147,6 +147,12 @@ jobs:
           $zip = Get-ChildItem ./*.zip | Select-Object -First 1
           $archiveUrl = "https://gh-proxy.com/https://github.com/$env:GH_REPO/releases/download/$tag/$($zip.Name)"
           $archiveSize = $zip.Length
+          # 链接发布模式下服务端不解包 zip，文件数由这里数出来一并提交。
+          # 口径与后端 _zip.js 的 readZip 一致：排除以 "/" 结尾的目录条目。
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          $fileCount = @($zipArchive.Entries | Where-Object { -not $_.FullName.EndsWith('/') }).Count
+          $zipArchive.Dispose()
           $changelog = Get-Content release_notes.md -Raw -Encoding UTF8
           $parts = $tag.Split('.')
           $friendlyVersion = $tag
@@ -162,6 +168,7 @@ jobs:
             changelog = $changelog
             archiveUrl = $archiveUrl
             archiveSize = $archiveSize
+            fileCount = $fileCount
             friendlyVersion = $friendlyVersion
             friendlyVersionShort = $friendlyVersionShort
           } | ConvertTo-Json -Depth 5

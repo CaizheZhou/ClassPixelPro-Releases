@@ -79,7 +79,7 @@ jobs:
           [void]$sb.AppendLine()
           [void]$sb.AppendLine("> **发布日期：** $date")
           [void]$sb.AppendLine()
-          [void]$sb.AppendLine("> **⚠️注意：该版本更新重启后可能会要求更新 .NET 环境，按照提示下载更新即可继续正常使用~⚠️⚠️⚠️**")
+          [void]$sb.AppendLine("![ClassPixelPro](https://gh-proxy.com/https://raw.githubusercontent.com/CaizheZhou/ClassPixelPro-Releases/main/BannerMain_App2.png)")
           [void]$sb.AppendLine()
           [void]$sb.AppendLine($notes)
           [void]$sb.AppendLine()

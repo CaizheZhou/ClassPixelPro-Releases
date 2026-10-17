@@ -31,6 +31,17 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      # 更新日志维护在本仓库根目录的 CHANGELOG.md，而上面 checkout 的是私有仓库 tag，
+      # 读不到它，所以这里额外取一份本仓库的 main
+      - name: Checkout changelog source
+        uses: actions/checkout@v4
+        with:
+          repository: CaizheZhou/ClassPixelPro-Releases
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+          path: changelog-source
+          fetch-depth: 1
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -54,7 +65,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $tag = $env:RELEASE_TAG
           $date = Get-Date -Format "yyyy-MM-dd HH:mm"
-          $changelogPath = 'CHANGELOG.md'
+          $changelogPath = 'changelog-source/CHANGELOG.md'
           $notes = ""
           if (Test-Path $changelogPath) {
             $content = Get-Content $changelogPath -Raw -Encoding UTF8
